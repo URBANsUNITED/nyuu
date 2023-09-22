@@ -2,6 +2,9 @@ name: docker-edge
 
 on:
   workflow_dispatch:
+    inputs:
+      date:
+        description: 'Enter date of edge version'
 
 jobs:
   build:
@@ -36,12 +39,6 @@ jobs:
           username: ${{ github.repository_owner  }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get current date
-        id: date
-        uses: Kaven-Universe/github-action-current-date-time@v1
-        with:
-          format: "YYYYMMDD"
-
       # Extract metadata (tags, labels) for Docker
       # https://github.com/docker/metadata-action
       - name: Extract Docker metadata
@@ -50,8 +47,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=edge-${{steps.date.outputs.time }}
-            type=sha,prefix=edge-${{steps.date.outputs.time }}-
+            type=raw,value=edge-${{ github.event.inputs.date }}
+            type=sha,prefix=edge-${{ github.event.inputs.date }}-
 
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action
