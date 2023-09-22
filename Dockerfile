@@ -42,10 +42,7 @@ RUN \
   rmdir /patches/ && \
   npm install && \
   ln -s /usr/src/Nyuu/bin/nyuu.js /usr/bin/nyuu && \
-  chmod +x /usr/bin/nyuu && \
-  echo "**** rebuild yencode ****" && \
-  cd /usr/src/Nyuu/node_modules/yencode && \
-  node-gyp rebuild
+  chmod +x /usr/bin/nyuu
 
 # volumes
 VOLUME [ "/config", "/output", "/storage" ]
