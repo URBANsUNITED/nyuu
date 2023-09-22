@@ -7,7 +7,7 @@ RUN \
   mkdir /usr/src/Nyuu && \
   curl -o \
     /tmp/nyuu.tar.gz -L \
-    "https://github.com/animetosho/Nyuu/archive/refs/tags/v0.4.1.tar.gz" && \
+    "https://github.com/animetosho/Nyuu/archive/fd695074e3c85e7d414bc4d4a2089fa5da1f5bba.tar.gz" && \
   tar xf \
     /tmp/nyuu.tar.gz -C \
     /usr/src/Nyuu --strip-components=1 && \
