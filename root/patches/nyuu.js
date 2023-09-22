@@ -12,7 +12,7 @@ var error = function(msg) {
 };
 var processes;
 var processStart = function(purpose) {
-	if(!processes) processes = new (require('../lib/procman'))();
+	if(!processes) processes = new (require('../cli/procman'))();
 	var proc = processes.start.apply(processes, Array.prototype.slice.call(arguments, 1));
 	proc.once('exit', function(code) {
 		if(logger && code) logger.warn(purpose + ' process exited with code ' + code);
@@ -23,30 +23,9 @@ var processStart = function(purpose) {
 	return proc;
 };
 
-var repeatChar = function(c, l) {
-	if(c.repeat) return c.repeat(l);
-	var buf = Buffer(l);
-	buf.fill(c);
-	return buf.toString();
-};
-var lpad = function(s, l, c) {
-	if(s.length > l) return s;
-	return repeatChar((c || ' '), l-s.length) + s;
-};
-var rpad = function(s, l, c) {
-	if(s.length > l) return s;
-	return s + repeatChar((c || ' '), l-s.length);
-};
-var friendlySize = function(s) {
-	var units = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB'];
-	for(var i=0; i<units.length; i++) {
-		if(s < 10000) break;
-		s /= 1024;
-	}
-	return (Math.round(s *100)/100) + ' ' + units[i];
-};
 
-var arg_parser = require('../lib/arg_parser');
+var arg_parser = require('../cli/arg_parser');
+var cliUtil = require('../cli/util');
 
 
 var servOptMap = {
@@ -235,63 +214,140 @@ var servOptMap = {
 	},
 };
 
+var argv;
+
+var randStr = function(len) {
+	var rnd = '';
+	var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+	while(len--)
+		rnd += chars[(Math.random() * chars.length) | 0];
+	return rnd;
+};
+function UserScriptError(message, area) {
+	var r = Error.call(this, message);
+	r.name = 'UserScriptError';
+	r.area = area;
+	return r;
+}
+UserScriptError.prototype = Object.create(Error.prototype, {
+	constructor: UserScriptError
+});
+
+// check whether an evaluation token (e.g. ${blah}) is present
+// note that we include ` and \ to be consistent with template string behaviour; without this check, "a`b" and "a`${'b'}" may behave differently
+var RE_EVAL_TOKEN_PRESENT = /\$\{.*\}|[`\\]/;
 // NOTE: for `{comment/2}` to work, this must be defined after the comment/2 options!
-var _mainTransform = function(rx, v) {
+var _mainTransform = function(rx, area, v) {
 	if(!v) return;
+	
 	var re_group_fname = /(\.[a-z0-9]{1,10}){0,2}(\.vol\d+[\-+]\d+\.par2)?(\.\d+|\.part\d+)?$/i;
-	return function(filenum, filenumtotal, filename, filesize, part, parts, extra) {
-		return v.replace(rx, function(m, token, a1) {
-			switch(token.toLowerCase()) {
-				case 'filenum': return filenum;
-				case '0filenum': return lpad(''+filenum, (''+filenumtotal).length, '0');
-				case 'files': return filenumtotal;
-				case 'filename': return filename;
-				case 'fnamebase': return filename.replace(re_group_fname, '');
-				case 'filesize': return filesize;
-				case 'fileksize': return Math.round(filesize / 10.24) / 100;
-				case 'filemsize': return Math.round(filesize / 10485.76) / 100;
-				case 'filegsize': return Math.round(filesize / 10737418.24) / 100;
-				case 'filetsize': return Math.round(filesize / 10995116277.76) / 100;
-				case 'fileasize': return friendlySize(filesize);
-				case 'part': return part;
-				case '0part': return lpad(''+part, (''+parts).length, '0');
-				case 'parts': return parts;
-				// ugly hack which relies on placement of the options
-				case 'comment': return argv.comment || '';
-				case 'comment2': return argv.comment2 || '';
-				case 'size': return extra.rawSize;
-				case 'timestamp': return extra.genTime;
-				case 'value': return extra;
-				default:
-					// rand(n)
-					var rnd = '';
-					var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-					while(a1--)
-						rnd += chars[(Math.random() * chars.length) | 0];
-					return rnd;
-			}
-		});
-	};
+	if(!argv['token-eval']) {
+		if((''+v).search(rx) == -1) return v; // shortcut: if no tokens are used, don't force function evaluation
+		return function(filenum, filenumtotal, filename, filesize, part, parts, extra) {
+			return v.replace(rx, function(m, token, a1) {
+				switch(token.toLowerCase()) {
+					case 'filenum': return filenum;
+					case '0filenum': return cliUtil.lpad(''+filenum, (''+filenumtotal).length, '0');
+					case 'files': return filenumtotal;
+					case 'filename': return filename;
+					case 'fnamebase': return filename.replace(re_group_fname, '');
+					case 'filesize': return filesize;
+					case 'fileksize': return Math.round(filesize / 10.24) / 100;
+					case 'filemsize': return Math.round(filesize / 10485.76) / 100;
+					case 'filegsize': return Math.round(filesize / 10737418.24) / 100;
+					case 'filetsize': return Math.round(filesize / 10995116277.76) / 100;
+					case 'fileasize': return cliUtil.friendlySize(filesize);
+					case 'part': return part;
+					case '0part': return cliUtil.lpad(''+part, (''+parts).length, '0');
+					case 'parts': return parts;
+					
+					case 'comment': return argv.comment || '';
+					case 'comment2': return argv.comment2 || '';
+					case 'size': return extra.rawSize;
+					case 'timestamp': return extra.genTime;
+					case 'value': return extra;
+					default:
+						// rand(n)
+						return randStr(a1);
+				}
+			});
+		};
+	} else {
+		// if there's no special characters, take a shortcut
+		if((''+v).search(RE_EVAL_TOKEN_PRESENT) == -1) return v;
+		var fn;
+		try {
+			fn = new Function('__friendlySize', 'comment', 'comment2', 'rand', 'UserScriptError',
+				'filenum', 'files', 'filename', 'filesize', 'part', 'parts', '__extra',
+				
+				'let fnamebase = filename.replace(' + re_group_fname.toString() + ', "");' +
+				'let fileksize = Math.round(filesize / 10.24) / 100;' +
+				'let filemsize = Math.round(filesize / 10485.76) / 100;' +
+				'let filegsize = Math.round(filesize / 10737418.24) / 100;' +
+				'let filetsize = Math.round(filesize / 10995116277.76) / 100;' +
+				'let fileasize = __friendlySize(filesize);' +
+				'let size = __extra ? __extra.rawSize : undefined;' +
+				'let timestamp = __extra ? __extra.genTime : undefined;' +
+				'let value = __extra;' +
+				'let __r;' +
+				'try {__r=`' + v + '`;}' +
+				'catch(x) {throw new UserScriptError(x.toString(), "'+area+'");}' +
+				'return __r;'
+			);
+		} catch(x) {
+			var err = 'Syntax error in expression for `' + area + '`: ' + x.toString();
+			if(v.search(/[`\\]/) >= 0)
+				err += '\nNote: backslashes (\\) and backticks (`) may need to be escaped';
+			error(err);
+		}
+		return fn.bind(null, cliUtil.friendlySize, argv.comment||'', argv.comment2||'', randStr, UserScriptError);
+	}
 };
 var articleHeaderFn = _mainTransform.bind(null, /\$?\{(0?filenum|files|filename|fnamebase|filesize|file[kmgta]size|0?part|parts|size|comment2?|timestamp|rand\((\d+)\))\}/ig);
+var yencNameFn = _mainTransform.bind(null, /\$?\{(0?filenum|files|filename|fnamebase|filesize|file[kmgta]size|parts|comment2?|rand\((\d+)\))\}/ig);
 var nzbHeaderFn = _mainTransform.bind(null, /\$?\{(0?filenum|files|filename|fnamebase|filesize|file[kmgta]size|0?part|parts|value)\}/ig);
 var RE_FILE_TRANSFORM = /\$?\{(0?filenum|files|filename|fnamebase|filesize|file[kmgta]size|0?part|parts)\}/ig;
 var fileTransformFn = _mainTransform.bind(null, RE_FILE_TRANSFORM);
-var filenameTransformFn = function(v) {
+var filenameTransformFn = function(area, v) {
 	if(!v) return;
-	var path = require('path');
-	return function(filename) {
-		return v.replace(/\$?\{(filename|basename|pathname)\}/ig, function(m, token, a1) {
-			switch(token.toLowerCase()) {
-				case 'basename':
-					return path.basename(filename);
-				case 'pathname':
-					return path.dirname(filename);
-				case 'filename':
-					return filename;
-			}
-		});
-	};
+	if(!argv['token-eval']) {
+		var path = require('path');
+		return function(filename) {
+			return v.replace(/\$?\{(filename|basename|pathname|rand\((\d+)\))\}/ig, function(m, token, a1) {
+				switch(token.toLowerCase()) {
+					case 'basename':
+						return path.basename(filename);
+					case 'pathname':
+						return path.dirname(filename);
+					case 'filename':
+						return filename;
+					default:
+						// rand(n)
+						return randStr(a1);
+				}
+			});
+		};
+	} else {
+		var fn;
+		try {
+			fn = new Function('__path', 'rand', 'UserScriptError',
+				'filename',
+				
+				'let basename = __path.basename(filename);' +
+				'let pathname = __path.dirname(filename);' +
+				'let __r;' +
+				'try {__r = `' + v + '`;}' +
+				'catch(x) {throw new UserScriptError(x.toString(), "'+area+'");}' +
+				'return __r;'
+			);
+		} catch(x) {
+			var err = 'Syntax error in expression for `' + area + '`: ' + x.toString();
+			if(v.search(/[`\\]/) >= 0)
+				err += '\nNote: backslashes (\\) and backticks (`) may need to be escaped';
+			error(err);
+		}
+		return fn.bind(null, require('path'), randStr, UserScriptError);
+	}
 };
 var optMap = {
 	/*'check-reuse-conn': {
@@ -332,6 +388,14 @@ var optMap = {
 			return v;
 		}
 	},
+	'article-encoding': {
+		type: 'enum',
+		enum: ['ascii','latin1','utf8'],
+		map: 'articleEncoding'
+	},
+	'yenc-name': {
+		type: 'string'
+	},
 	comment: {
 		type: 'string',
 		alias: 't',
@@ -367,34 +431,26 @@ var optMap = {
 		map: 'groupFiles'
 	},
 	header: {
-		type: 'map',
+		type: 'map2',
 		alias: 'H'
 	},
 	subject: {
 		type: 'string',
-		alias: 's',
-		map: 'postHeaders/Subject',
-		fn: articleHeaderFn
+		alias: 's'
 	},
 	filename: {
-		type: 'string',
-		map: 'fileNameTransform',
-		fn: filenameTransformFn
+		type: 'string'
 	},
 	from: {
 		type: 'string',
-		alias: 'f',
-		map: 'postHeaders/From'
+		alias: 'f'
 	},
 	groups: {
 		type: 'string',
-		alias: 'g',
-		map: 'postHeaders/Newsgroups'
+		alias: 'g'
 	},
 	'message-id': {
-		type: 'string',
-		map: 'postHeaders/Message-ID',
-		fn: articleHeaderFn
+		type: 'string'
 	},
 	out: {
 		type: 'string',
@@ -432,14 +488,10 @@ var optMap = {
 		}
 	},
 	'nzb-subject': {
-		type: 'string',
-		map: 'nzb/overrides/subject',
-		fn: nzbHeaderFn
+		type: 'string'
 	},
 	'nzb-poster': {
-		type: 'string',
-		map: 'nzb/overrides/poster',
-		fn: nzbHeaderFn
+		type: 'string'
 	},
 	overwrite: {
 		type: 'bool',
@@ -498,6 +550,9 @@ var optMap = {
 	'input-file0': {
 		type: 'array',
 		alias: '0'
+	},
+	'input-file-enc': {
+		type: 'string'
 	},
 	'disk-req-size': {
 		type: 'size',
@@ -561,6 +616,10 @@ var optMap = {
 	'delete-raw-posts': {
 		type: 'bool',
 		map: 'deleteRawPosts'
+	},
+	'token-eval': {
+		type: 'bool',
+		alias: 'E'
 	},
 	'copy-input': {
 		type: 'string'
@@ -630,7 +689,6 @@ for(var k in servOptMap) {
 }
 
 
-var argv;
 try {
 	argv = arg_parser(process.argv.slice(2), optMap);
 } catch(x) {
@@ -638,6 +696,9 @@ try {
 }
 var isNode010 = process.version.match(/^v0\.10\./);
 
+var dumpObj = function(o) {
+	return require('util').inspect(o, {colors: argv.colorize})
+};
 
 if(argv['help-full'] || argv.help) {
 	var helpText;
@@ -685,7 +746,7 @@ if(argv['package-info']) {
 	
 	for(var i in m) {
 		console.error('\n' + i + ':');
-		process.stderr.write(require('util').inspect(m[i], {colors: argv.colorize}) + '\n');
+		process.stderr.write(dumpObj(m[i]) + '\n');
 	}
 	process.exit(0);
 }
@@ -736,7 +797,7 @@ if(argv.config || process.env.NYUU_CONFIG) {
 		confType = 'json';
 	else if(confFile.match(/\.js$/i))
 		confType = 'js';
-	else if(confData.trim().substr(0, 1) == '{')
+	else if(confData.trim().substring(0, 1) == '{')
 		confType = 'json';
 	else if(confData.match(/(^|[^a-zA-Z0-9])exports[^a-zA-Z0-9]/))
 		confType = 'js';
@@ -825,7 +886,7 @@ var servOptHelper = function(k, val, type, servers) {
 		case 'host':
 			if(val.match(/^unix:/i)) {
 				key = 'connect/path';
-				val  = val.substr(5);
+				val  = val.substring(5);
 			} else
 				key = 'connect/host';
 		break;
@@ -893,7 +954,7 @@ if(argv['dump-failed-posts']) {
 		if(fs.statSync(argv['dump-failed-posts']).isDirectory()) {
 			// if supplied a folder, append a directory separator if not supplied
 			var sep = require('path').sep;
-			if(ulOpts.dumpPostLoc.substr(-1) != sep)
+			if(ulOpts.dumpPostLoc.slice(-1) != sep)
 				ulOpts.dumpPostLoc += sep;
 		}
 	} catch(x) {}
@@ -909,7 +970,7 @@ if(argv['copy-input']) {
 	
 	var copyProc = copyTarget.match(/^proc:\/\//i);
 	if(copyProc)
-		copyTarget = copyTarget.substr(7);
+		copyTarget = copyTarget.substring(7);
 	
 	ulOpts.inputCopy = function(filename, size) {
 		if(copyIncl && !filename.match(copyIncl)) return;
@@ -927,6 +988,12 @@ if(argv['copy-input']) {
 }
 
 // map custom headers
+['Subject','From','Newsgroups','Message-ID'].forEach(function(header) {
+	var hl = header.toLowerCase();
+	if(hl == 'newsgroups') hl = 'groups';
+	if(hl in argv)
+		ulOpts.postHeaders[header] = articleHeaderFn(hl, argv[hl]);
+});
 if(argv.header) {
 	// to preserve case, build case-insensitive lookup
 	var headerCMap = {};
@@ -935,13 +1002,30 @@ if(argv.header) {
 	
 	for(var k in argv.header) {
 		// handle casing wierdness
-		var kk = headerCMap[k.toLowerCase()];
+		var kl = k.toLowerCase();
+		var kk = headerCMap[kl];
 		if(!kk) {
-			headerCMap[k.toLowerCase()] = kk = k;
+			headerCMap[kl] = kk = k;
 		}
-		ulOpts.postHeaders[kk] = argv.header[k];
+		if(argv.header[k] === undefined) {
+			if(kl == 'message-id')
+				error('The Message-ID header cannot be unset');
+			delete ulOpts.postHeaders[kk];
+		} else
+			ulOpts.postHeaders[kk] = articleHeaderFn('header', argv.header[k]);
 	}
 }
+
+// token handling of other parameters
+if('yenc-name' in argv)
+	ulOpts.yencName = yencNameFn('yenc-name', argv['yenc-name']);
+if('filename' in argv)
+	ulOpts.fileNameTransform = filenameTransformFn('filename', argv['filename']);
+['subject','poster'].forEach(function(prop) {
+	var k = 'nzb-'+prop;
+	if(k in argv)
+		ulOpts.nzb.overrides[prop] = nzbHeaderFn(k, argv[k]);
+});
 
 // map custom meta tags
 if(argv.meta) util.extend(ulOpts.nzb.metaData, argv.meta);
@@ -983,15 +1067,15 @@ if(argv['out']) {
 	if(argv['out'] == '-') {
 		ulOpts.nzb.writeTo = process.stdout;
 	} else if(/^fd:\/\/\d+$/i.test(argv['out'])) {
-		ulOpts.nzb.writeTo = fs.createWriteStream(null, {fd: argv['out'].substr(5)|0, encoding: ulOpts.nzb.writeOpts.encoding});
+		ulOpts.nzb.writeTo = fs.createWriteStream(null, {fd: argv['out'].substring(5)|0, encoding: ulOpts.nzb.writeOpts.encoding});
 	} else {
-		var outTokens = RE_FILE_TRANSFORM.test(argv['out']);
+		var outTokens = argv['out'].search(argv['token-eval'] ? RE_EVAL_TOKEN_PRESENT : RE_FILE_TRANSFORM) >= 0;
 		var nzbOpts = ulOpts.nzb;
 		if(outTokens) delete nzbOpts.writeTo;
 		if(/^proc:\/\//i.test(argv['out'])) {
-			var proc = argv['out'].substr(7);
+			var proc = argv['out'].substring(7);
 			if(outTokens) {
-				var tr = fileTransformFn(proc), procsStarted = {};
+				var tr = fileTransformFn('out', proc), procsStarted = {};
 				ulOpts.nzb = function() {
 					var proc = tr.apply(null, arguments);
 					if(!procsStarted[proc])
@@ -1008,7 +1092,7 @@ if(argv['out']) {
 				}.bind(null, proc);
 			}
 		} else if(outTokens) {
-			var tr = fileTransformFn(argv['out']);
+			var tr = fileTransformFn('out', argv['out']);
 			ulOpts.nzb = function() {
 				var opts = {writeTo: tr.apply(null, arguments)};
 				for(var k in nzbOpts)
@@ -1049,10 +1133,10 @@ if(argv.progress) {
 		var m = str.match(/^([a-z]+)(:|$)/i);
 		if(!m) error('Unknown progress specification: ' + str);
 		var type = m[1].toLowerCase();
-		var arg = str.substr(m[0].length);
+		var arg = str.substring(m[0].length);
 		switch(type) {
 			case 'log':
-				progress.push({type: 'log', interval: arg_parser.parseTime(arg) || 60});
+				progress.push({type: 'log', interval: arg_parser.parseTime(arg) || 60*1000});
 			break;
 			case 'stderr':
 			case 'stderrx':
@@ -1064,17 +1148,17 @@ if(argv.progress) {
 				progress.push({type: type});
 				
 				if(argv['preload-modules'])
-					require('../lib/progrec');
+					require('../cli/progrec');
 			break;
 			case 'tcp':
 			case 'http':
 				var o = {type: type, port: 0};
-				if(arg.substr(0, 5) == 'unix:') {
-					o.socket = arg.substr(5);
+				if(arg.substring(0, 5) == 'unix:') {
+					o.socket = arg.substring(5);
 				} else if(m = arg.match(/^([a-z0-9\-.]*|\[[a-f0-9:]+\]):(\d*)$/i)) {
 					if(m[1].length) {
-						if(m[1].substr(0, 1) == '[')
-							o.host = m[1].substr(1, m[1].length-2);
+						if(m[1].substring(0, 1) == '[')
+							o.host = m[1].substring(1, m[1].length-1);
 						else
 							o.host = m[1];
 					}
@@ -1108,7 +1192,7 @@ if(argv.progress) {
 	stdErrProgress = true;
 }
 
-var getProcessIndicator = null;
+var progressMgr = require('../cli/progressmgr');
 var writeNewline = function() {
 	process.stderr.write('\n');
 };
@@ -1118,18 +1202,17 @@ if(argv.colorize) {
 	writeLog = function(col, type, msg) {
 		process.stderr.write(
 			clrRow + '\x1B['+col+'m' + logTimestamp('') + type + '\x1B[39m ' + msg.toString() + '\n'
-			+ (getProcessIndicator && stdErrProgress ? getProcessIndicator() : '')
+			+ (progressMgr.getProcessIndicator && stdErrProgress ? progressMgr.getProcessIndicator() : '')
 		);
 	};
 } else {
 	writeLog = function(col, type, msg) {
 		process.stderr.write(
 			clrRow + logTimestamp('') + type + ' ' + msg.toString() + '\n'
-			+ (getProcessIndicator && stdErrProgress ? getProcessIndicator() : '')
+			+ (progressMgr.getProcessIndicator && stdErrProgress ? progressMgr.getProcessIndicator() : '')
 		);
 	};
 }
-var errorCount = 0;
 var logger = {
 	debug: function(msg) {
 		writeLog('36', '[DBG ]', msg);
@@ -1142,7 +1225,7 @@ var logger = {
 	},
 	error: function(msg) {
 		writeLog('31', '[ERR ]', msg);
-		errorCount++;
+		progressMgr.errorCount++;
 	}
 };
 
@@ -1150,7 +1233,7 @@ if(verbosity < 4) logger.debug = function(){};
 if(verbosity < 3) logger.info = function(){};
 if(verbosity < 2) logger.warn = function(){};
 if(verbosity < 1) {
-	logger.error = function(){errorCount++;};
+	logger.error = function(){progressMgr.errorCount++;};
 	// suppress output from uncaught exceptions
 	process.once('uncaughtException', function(err) {
 		process.exit(isNode010 ? 8 : 1);
@@ -1159,11 +1242,16 @@ if(verbosity < 1) {
 	Error.stackTraceLimit = 25; // increase limit as I've had cases where 10 entries wasn't enough
 	process.once('uncaughtException', function(err) {
 		process.emit('finished');
-		if(getProcessIndicator)
+		if(progressMgr.getProcessIndicator)
 			process.removeListener('exit', writeNewline);
-		getProcessIndicator = null;
-		logger.error('Unexpected fatal exception encountered, stack trace below');
-		throw err; // this seems to change the exit code a bit :/
+		progressMgr.getProcessIndicator = null;
+		if(err.name == 'UserScriptError') {
+			logger.error('Evaluation failed for parameter `'+err.area+'`: ' + err.message);
+			process.exit(isNode010 ? 8 : 1);
+		} else {
+			logger.error('Unexpected fatal exception encountered, stack trace below');
+			throw err; // this seems to change the exit code a bit :/
+		}
 	});
 }
 
@@ -1174,8 +1262,8 @@ process.once('finished', function() {
 var displayCompleteMessage = function(err) {
 	if(err)
 		Nyuu.log.error(err.toString() + (err.skippable ? ' (use `skip-errors` to ignore)':''));
-	else if(errorCount)
-		Nyuu.log.info('Process complete, with ' + errorCount + ' error(s)');
+	else if(progressMgr.errorCount)
+		Nyuu.log.info('Process complete, with ' + progressMgr.errorCount + ' error(s)');
 	else
 		Nyuu.log.info('Process complete');
 };
@@ -1200,6 +1288,7 @@ var filesToUpload = argv._;
 	
 	if(fileLists) {
 		var stdInUsed = false;
+		var inlistEnc = argv['input-file-enc'] || 'utf8';
 		require('async').map(fileLists, function(fl, cb) {
 			if(fl[0] == '-' || /^fd:\/\/\d+$/i.test(fl[0])) {
 				var stream;
@@ -1208,34 +1297,32 @@ var filesToUpload = argv._;
 					stdInUsed = true;
 					stream = process.stdin;
 				} else {
-					stream = fs.createReadStream(null, {fd: fl[0].substr(5)|0});
+					stream = fs.createReadStream(null, {fd: fl[0].substring(5)|0});
 				}
 				// read from stream
 				var data = '';
 				stream.on('data', function(chunk) {
-					data += chunk.toString();
+					data += chunk.toString(inlistEnc);
 				});
 				stream.once('end', function() {
 					cb(null, [fl[1], data]);
 				});
 				stream.once('error', cb);
 			} else if(/^proc:\/\//i.test(fl[0])) {
-				require('child_process').exec(fl[0].substr(7), {maxBuffer: 1048576*32}, function(err, stdout, stderr) {
+				require('child_process').exec(fl[0].substring(7), {maxBuffer: 1048576*32, encoding: inlistEnc}, function(err, stdout, stderr) {
 					if(stderr && stderr.length && verbosity >= 4 && !err) {
-						logger.debug('File list process outputted to stderr: ' + stderr.toString());
+						logger.debug('File list process outputted to stderr: ' + stderr.toString(inlistEnc));
 					}
 					cb(err, [fl[1], stdout]);
 				});
 			} else {
 				fs.readFile(fl[0], function(err, data) {
-					cb(err, [fl[1], data]);
+					cb(err, [fl[1], data ? data.toString(inlistEnc) : null]);
 				});
 			}
 		}, function(err, dataPairs) {
 			if(err) return error(err);
 			dataPairs.forEach(function(data) {
-				if(Buffer.isBuffer(data[1]))
-					data[1] = data[1].toString();
 				if(data[0])
 					filesToUpload = filesToUpload.concat(
 						data[1].replace(/\r/g, '').split('\n').filter(function(l) {
@@ -1255,7 +1342,7 @@ var filesToUpload = argv._;
 		// TODO: consider supporting deferred filesize gathering?
 		var m = file.match(/^procjson:\/\/(.+?,.+?,.+)$/i);
 		if(m) {
-			if(m[1].substr(0, 1) != '[')
+			if(m[1].substring(0, 1) != '[')
 				m[1] = '[' + m[1] + ']';
 			m = JSON.parse(m[1]);
 			if(!Array.isArray(m) || m.length != 3)
@@ -1272,7 +1359,7 @@ var filesToUpload = argv._;
 			if(!ret.size)
 				error('Invalid size specified for process input: ' + file);
 			if(argv['preload-modules']) {
-				require('../lib/procman');
+				require('../cli/procman');
 				require('../lib/streamreader');
 			}
 			return ret;
@@ -1282,16 +1369,16 @@ var filesToUpload = argv._;
 		}
 		return file;
 	}), ulOpts, function(err) {
-		if(getProcessIndicator)
+		if(progressMgr.getProcessIndicator)
 			process.removeListener('exit', writeNewline);
 		process.emit('finished');
-		getProcessIndicator = null;
+		progressMgr.getProcessIndicator = null;
 		if(err) {
 			displayCompleteMessage(err);
 			process.exitCode = 33;
 		} else {
 			displayCompleteMessage();
-			process.exitCode = errorCount ? 32 : 0;
+			process.exitCode = progressMgr.errorCount ? 32 : 0;
 		}
 		(function(cb) {
 			if(processes && processes.running) {
@@ -1317,37 +1404,11 @@ var filesToUpload = argv._;
 				});
 			}
 			setTimeout(function() {
-				if(process._getActiveHandles || process.getActiveResourcesInfo) {
-					var hTypes = {};
-					var ah;
-					if(process._getActiveHandles) { // undocumented function, but seems to always work
-						ah = process._getActiveHandles().filter(function(h) {
-							// exclude stdout/stderr from count
-							return !h.constructor || h.constructor.name != 'WriteStream' || (h.fd != 1 && h.fd != 2);
-						});
-						ah.forEach(function(h) {
-							var cn = (h.constructor ? h.constructor.name : 0) || 'unknown';
-							if(cn in hTypes)
-								hTypes[cn]++;
-							else
-								hTypes[cn] = 1;
-						});
-					} else {
-						process.getActiveResourcesInfo().forEach(function(h) {
-							if(h in hTypes)
-								hTypes[h]++;
-							else
-								hTypes[h] = 1;
-						});
-						// TODO: is there any way to exclude stdout/stderr?
-					}
-					var handleStr = '';
-					for(var hn in hTypes) {
-						handleStr += ', ' + hn + (hTypes[hn] > 1 ? ' (' + hTypes[hn] + ')' : '');
-					}
-					Nyuu.log.warn('Process did not terminate cleanly; active handles: ' + handleStr.substr(2));
-					if(verbosity >= 4 && ah) {
-						process.stderr.write(require('util').inspect(ah, {colors: argv.colorize}) + '\n');
+				var handles = cliUtil.activeHandleCounts();
+				if(handles) {
+					Nyuu.log.warn('Process did not terminate cleanly; active handles: ' + cliUtil.activeHandlesStr(handles[0]));
+					if(verbosity >= 4 && handles[1]) {
+						process.stderr.write(dumpObj(handles[1]) + '\n');
 					}
 				} else
 					Nyuu.log.warn('Process did not terminate cleanly');
@@ -1357,27 +1418,6 @@ var filesToUpload = argv._;
 	});
 	
 	// display some stats
-	var decimalPoint = ('' + 1.1).replace(/1/g, '');
-	var friendlyTime = function(t, compact) {
-		var days = (t / 86400000) | 0;
-		t %= 86400000;
-		var seg = [];
-		var sect = [3600000, 60000, 1000];
-		if(compact && t < 3600000)
-			sect.shift();
-		sect.forEach(function(s) {
-			seg.push(lpad('' + ((t / s) | 0), 2, '0'));
-			t %= s;
-		});
-		var ret = (days ? days + 'd,' : '') + seg.join(':');
-		if(!compact)
-			ret += decimalPoint + lpad(t + '', 3, '0');
-		return ret;
-	};
-	var toPercent = function(n) {
-		return (Math.round(n*10000)/100).toFixed(2) + '%';
-	};
-	var retArg = function(_) { return _; };
 	fuploader.once('start', function(files, uploader) {
 		var totalSize = 0, totalPieces = 0, totalFiles = 0;
 		for(var filename in files) {
@@ -1388,296 +1428,48 @@ var filesToUpload = argv._;
 		}
 		if(argv['input-raw-posts']) {
 			totalPieces = totalFiles;
-			Nyuu.log.info('Uploading ' + totalPieces + ' article(s) totalling about ' + friendlySize(totalSize));
+			Nyuu.log.info('Uploading ' + totalPieces + ' article(s) totalling about ' + cliUtil.friendlySize(totalSize));
 		} else
-			Nyuu.log.info('Uploading ' + totalPieces + ' article(s) from ' + totalFiles + ' file(s) totalling ' + friendlySize(totalSize));
+			Nyuu.log.info('Uploading ' + totalPieces + ' article(s) from ' + totalFiles + ' file(s) totalling ' + cliUtil.friendlySize(totalSize));
 		
 		var startTime = Date.now();
-		var progressReport = function(now) {
-			now = now || Date.now();
-			return [
-				'Total articles: ' + totalPieces + ' (' + friendlySize(totalSize) + ')',
-				'Articles read: ' + uploader.articlesRead + ' (' + toPercent(uploader.articlesRead/totalPieces) + ')' + (uploader.articlesReRead ? ' (+' + uploader.articlesReRead + ' re-read)':''),
-				'Articles posted: ' + uploader.articlesPosted + ' (' + toPercent(uploader.articlesPosted/totalPieces) + ')' + (uploader.articlesRePosted ? ' (+' + uploader.articlesRePosted + ' re-posted)':''),
-				uploader.numCheckConns ? 'Articles checked: ' + uploader.articlesChecked + ' (' + toPercent(uploader.articlesChecked/totalPieces) + ')' : false,
-				'Errors skipped: ' + errorCount + ' across ' + uploader.articleErrors + ' article(s)',
-				'Upload Rate (network|real): ' + friendlySize(uploader.currentNetworkUploadBytes()/uploader.currentNetworkUploadTime()*1000) + '/s | ' + friendlySize(uploader.bytesPosted/(now-startTime)*1000) + '/s',
-			].filter(function(e){return e;});
-		};
 		var reportOnEnd = false;
 		var getCompleteStatus = function(err) {
-			var msg;
-			var time = Date.now() - startTime;
-			if(err) {
-				msg = 'Process has been aborted. Posted ' + uploader.articlesPosted + ' article(s)';
-				var unchecked = uploader.articlesPosted - uploader.articlesChecked;
-				if(unchecked)
-					msg += ' (' + unchecked + ' unchecked)';
-				msg += ' in ' + friendlyTime(time) + ' (' + friendlySize(uploader.bytesPosted/time*1000) + '/s)';
-			} else {
-				msg = 'Finished uploading ' + friendlySize(totalSize) + ' in ' + friendlyTime(time) + ' (' + friendlySize(totalSize/time*1000) + '/s)';
+			if(reportOnEnd) {
+				var now = Date.now();
 				
-				if(errorCount)
-					msg += ', with ' + errorCount + ' error(s) across ' + uploader.articleErrors + ' post(s)';
+				return (err ? 'Process has been aborted.' : 'Process complete.') + ' Report follows:\n' +
+				'         Elapsed time: ' + cliUtil.friendlyTime(now-startTime) + '\n' +
+				'         ' + progressMgr.progressReport(now).join('\n         ');
+			} else {
+				var msg;
+				var time = Date.now() - startTime;
+				if(err) {
+					msg = 'Process has been aborted. Posted ' + uploader.articlesPosted + ' article(s)';
+					var unchecked = uploader.articlesPosted - uploader.articlesChecked;
+					if(unchecked)
+						msg += ' (' + unchecked + ' unchecked)';
+					msg += ' in ' + cliUtil.friendlyTime(time) + ' (' + cliUtil.friendlySize(uploader.bytesPosted/time*1000) + '/s)';
+				} else {
+					msg = 'Finished uploading ' + cliUtil.friendlySize(totalSize) + ' in ' + cliUtil.friendlyTime(time) + ' (' + cliUtil.friendlySize(totalSize/time*1000) + '/s)';
+					
+					if(progressMgr.errorCount)
+						msg += ', with ' + progressMgr.errorCount + ' error(s) across ' + uploader.articleErrors + ' post(s)';
+				}
+				
+				return msg + '. Network upload rate: ' + cliUtil.friendlySize(uploader.currentNetworkUploadBytes()/uploader.currentNetworkUploadTime()*1000) + '/s';
 			}
-			
-			return msg + '. Network upload rate: ' + friendlySize(uploader.currentNetworkUploadBytes()/uploader.currentNetworkUploadTime()*1000) + '/s';
 		};
 		
 		progress.forEach(function(prg) {
-			switch(prg.type) {
-				case 'log':
-					var logInterval = setInterval(function() {
-						Nyuu.log.info('Article posting progress: ' + uploader.articlesRead + ' read, ' + uploader.articlesPosted + ' posted' + (uploader.numCheckConns ? ', ' + uploader.articlesChecked + ' checked' : ''));
-					}, prg.interval);
-					process.on('finished', function() {
-						clearInterval(logInterval);
-					});
-				break;
-				case 'stderrx':
-				case 'stdoutx':
-					reportOnEnd = true;
-				case 'stderr':
-				case 'stdout':
-					if(getProcessIndicator) break; // no need to double output =P
-					var ProgressRecorder = require('../lib/progrec');
-					var byteSamples = new ProgressRecorder(180);
-					var progressSamples = new ProgressRecorder(180);
-					byteSamples.add(0);
-					progressSamples.add(0);
-					getProcessIndicator = function() {
-						var chkPerc = uploader.articlesChecked / totalPieces,
-						    pstPerc = uploader.articlesPosted / totalPieces,
-						    totPerc = toPercent((chkPerc+pstPerc)/2);
-						
-						// calculate speed over last 4s
-						var speed = uploader.bytesPosted; // for first sample, just use current overall progress
-						var completed = (uploader.articlesChecked + uploader.articlesPosted)/2;
-						var advancement = completed;
-						if(byteSamples.count() >= 2) {
-							speed = byteSamples.average(4, 4*ulOpts.articleSize);
-							advancement = progressSamples.average(10, 20);
-						}
-						
-						var eta = (totalPieces - completed) / advancement;
-						eta = Math.round(eta)*1000;
-						if(!isNaN(eta) && isFinite(eta) && eta > 0)
-							eta = friendlyTime(eta, true);
-						else
-							eta = '-';
-						
-						if(prg.type == 'stderr' || prg.type == 'stdout') {
-							var LINE_WIDTH = 35;
-							var barSize = Math.floor(chkPerc*LINE_WIDTH);
-							var line = repeatChar('=', barSize) + repeatChar('-', Math.floor(pstPerc * LINE_WIDTH) - barSize);
-							return '\x1b[0G\x1B[0K ' + lpad(totPerc, 6) + '  [' + rpad(line, LINE_WIDTH) + ']' + (uploader.bytesPosted ?
-								' ' + friendlySize(speed) + '/s, ETA ' + eta
-							: '');
-						} else {
-							// extended display
-							var posted = '' + uploader.articlesChecked;
-							if(uploader.articlesChecked != uploader.articlesPosted)
-								posted += '+' + (uploader.articlesPosted - uploader.articlesChecked);
-							var ret = 'Posted: ' + posted + '/' + totalPieces + ' (' + totPerc + ') @ ' + friendlySize(speed) + '/s (network: ' + friendlySize(uploader.currentNetworkUploadBytes()/uploader.currentNetworkUploadTime()*1000) + '/s) ETA ' + eta;
-							if(ret.length > 80)
-								// if too long, strip the network post speed
-								ret = ret.replace(/ \(network\: [0-9.]+ [A-Zi]+\/s\)/, ',');
-							return '\x1b[0G\x1B[0K' + ret;
-						}
-					};
-					var prgTarget = prg.type.substr(0, 6);
-					var seInterval = setInterval(function() {
-						byteSamples.add(uploader.bytesPosted);
-						progressSamples.add((uploader.articlesChecked + uploader.articlesPosted)/2);
-						process[prgTarget].write(getProcessIndicator());
-					}, 1000);
-					process.on('finished', function() {
-						clearInterval(seInterval);
-						// force final progress to be written; this will usually be cleared and hence be unnecessary, but can be useful if someone's parsing the output
-						process[prgTarget].write(getProcessIndicator());
-						
-						if(reportOnEnd) {
-							getCompleteStatus = function(err) {
-								var now = Date.now();
-								
-								return (err ? 'Process has been aborted.' : 'Process complete.') + ' Report follows:\n' +
-									'         Elapsed time: ' + friendlyTime(now-startTime) + '\n' +
-								'         ' + progressReport(now).join('\n         ');
-							};
-						}
-					});
-					// if unexpected exit, force a newline to prevent some possible terminal corruption
-					process.on('exit', writeNewline);
-				break;
-				case 'tcp':
-				case 'http':
-					var writeState = function(conn) {
-						var now = Date.now();
-						
-						// TODO: JSON output etc
-						conn.write([
-							'Time: ' + (new Date(now)),
-							'Start time: ' + (new Date(startTime)),
-							''
-						].concat(progressReport(now)).concat([
-							'',
-							'Post queue size: ' + uploader.queue.queue.length + ' (' + toPercent(Math.min(uploader.queue.queue.length/uploader.queue.size, 1)) + ' full)' + (uploader.queue.hasFinished ? ' - finished' : ''),
-							'Check queue size: ' + uploader.checkQueue.queue.length + ' + ' + uploader.checkQueue.pendingAdds + ' delayed' + ' (' + toPercent(Math.min((uploader.checkQueue.queue.length+uploader.checkQueue.pendingAdds)/uploader.checkQueue.size, 1)) + ' full)' + (uploader.checkQueue.hasFinished ? ' - finished' : ''),
-							'Check cache size: ' + uploader.checkCache.cacheSize + ' (' + toPercent(Math.min(uploader.checkCache.cacheSize/uploader.checkCache.size, 1)) + ' full)',
-							'Re-read queue size: ' + uploader.reloadQueue.queue.length,
-							'', ''
-						]).join('\r\n'));
-						
-						var dumpConnections = function(conns) {
-							var i = 0;
-							conns.forEach(function(c) {
-								conn.write('Connection #' + (++i) + '\r\n');
-								if(c) {
-									conn.write([
-										'  State: ' + c.getCurrentActivity() + (c.lastActivity ? ' for ' + ((now - c.lastActivity)/1000) + 's' : ''),
-										'  Transfer: ' + friendlySize(c.bytesRecv) + ' down / ' + friendlySize(c.bytesSent) + ' up',
-										'  Requests: ' + c.numRequests + ' (' + c.numPosts + ' posts)',
-										'  Reconnects: ' + (c.numConnects-1),
-										'  Errors: ' + c.numErrors,
-										'', ''
-									].join('\r\n'));
-								} else {
-									conn.write('  State: finished\r\n\r\n')
-								}
-							});
-						};
-						if(uploader.postConnections.length) {
-							conn.write('===== Post Connections\' Status =====\r\n');
-							dumpConnections(uploader.postConnections);
-						}
-						if(uploader.checkConnections.length) {
-							conn.write('===== Check Connections\' Status =====\r\n');
-							dumpConnections(uploader.checkConnections);
-						}
-					};
-					
-					var server;
-					if(prg.type == 'http') {
-						var url = require('url');
-						server = require('http').createServer(function(req, resp) {
-							var path = url.parse(req.url).pathname.replace(/\/$/, '');
-							var m;
-							if(m = path.match(/^\/(post|check)queue\/?$/)) {
-								// dump post/check queue
-								var isCheckQueue = (m[1] == 'check');
-								resp.writeHead(200, {
-									'Content-Type': 'text/plain'
-								});
-								var dumpPost = function(post) {
-									var subj = post.getHeader('subject');
-									if(subj === null) subj = '[unknown, post evicted from cache]';
-									resp.write([
-										'Message-ID: ' + post.messageId,
-										'Subject: ' + subj,
-										'Body length: ' + post.postLen,
-										'Post attempts: ' + post.postTries,
-										''
-									].join('\r\n'));
-									if(isCheckQueue)
-										resp.write('Check attempts: ' + post.chkFailures + '\r\n');
-								};
-								uploader[isCheckQueue ? 'checkQueue' : 'queue'].queue.forEach(function(post) {
-									dumpPost(post);
-									resp.write('\r\n');
-								});
-								if(isCheckQueue && uploader.checkQueue.pendingAdds) {
-									resp.write('\r\n===== Delayed checks =====\r\n');
-									for(var k in uploader.checkQueue.queuePending) {
-										dumpPost(uploader.checkQueue.queuePending[k].data);
-										resp.write('\r\n');
-									}
-								}
-								resp.end();
-							} else if(m = path.match(/^\/(check)queue\/([^/]+)\/?$/)) {
-								// search queue for target post
-								var q = uploader.checkQueue.queue;
-								var post;
-								for(var k in q) {
-									if(q[k].messageId == m[2]) {
-										post = q[k];
-										break;
-									}
-								}
-								if(!post) {
-									// check deferred queue too
-									var q = uploader.checkQueue.queuePending;
-									for(var k in q) {
-										if(q[k].data.messageId == m[2]) {
-											post = q[k].data;
-											break;
-										}
-									}
-								}
-								if(post) {
-									if(post.data) {
-										// dump post from check queue
-										resp.writeHead(200, {
-											'Content-Type': 'message/rfc977' // our made up MIME type; follows similarly to SMTP mail
-										});
-										resp.write(post.data);
-									} else {
-										resp.writeHead(500, {
-											'Content-Type': 'text/plain'
-										});
-										resp.write('Specified post exists, but cannot be retrieved as it has been evicted from cache');
-									}
-								} else {
-									resp.writeHead(404, {
-										'Content-Type': 'text/plain'
-									});
-									resp.write('Specified post not found in queue');
-								}
-								resp.end();
-							} else if(!path || path == '/') {
-								// dump overall status
-								resp.writeHead(200, {
-									'Content-Type': 'text/plain'
-								});
-								writeState(resp);
-								resp.end();
-							} else {
-								resp.writeHead(404, {
-									'Content-Type': 'text/plain'
-								});
-								resp.end('Invalid URL');
-							}
-							req.socket.unref();
-						});
-					} else {
-						server = require('net').createServer(function(conn) {
-							writeState(conn);
-							conn.end();
-							conn.unref();
-						});
-					}
-					server.on('error', function(err) {
-						Nyuu.log.warn('StatusServer ' + err.toString());
-					});
-					server.once('listening', process.on.bind(process, 'finished', function() {
-						server.close();
-					}));
-					if(prg.socket) {
-						server.listen(prg.socket, function() {
-							Nyuu.log.info('Status ' + prg.type.toUpperCase() + ' server listening at ' + prg.socket);
-						});
-					} else {
-						server.listen(prg.port, prg.host, function() {
-							var addr = server.address();
-							if(addr.family == 'IPv6')
-								addr = '[' + addr.address + ']:' + addr.port;
-							else
-								addr = addr.address + ':' + addr.port;
-							Nyuu.log.info('Status ' + prg.type.toUpperCase() + ' server listening on ' + addr);
-						});
-					}
-				break;
+			if(prg.type == 'stdoutx' || prg.type == 'stderrx')
+				reportOnEnd = true;
+			if(prg.type.substring(0, 3) == 'std') {
+				// if unexpected exit, force a newline to prevent some possible terminal corruption
+				process.on('exit', writeNewline);
 			}
 		});
+		progressMgr.start(progress, uploader, Nyuu.log, totalPieces, totalSize, startTime, ulOpts.articleSize);
 		
 		displayCompleteMessage = function(err) {
 			if(err)
