@@ -5,3 +5,10 @@
 if [ ! -f  "/config/config.js" ]; then
     cp /opt/config.js /config/config.js
 fi
+
+# Recompile yencoder
+if [ ! -f  "/root/compiled" ]; then
+    touch /root/compiled
+    cd /usr/src/Nyuu/node_modules/yencode && \
+    node-gyp rebuild
+fi
