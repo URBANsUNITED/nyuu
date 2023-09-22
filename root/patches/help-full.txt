@@ -99,7 +99,7 @@ Article/Post Options:
                                              respectively, e.g. {filemsize}
                                  {fileasize} Friendly formatted file size, e.g.
                                              '4.85 MiB' or '35.1 GiB'
-                                 {part}      Article part number
+                                 {part}      Article part number, starts at 1
                                  {0part}     Article part number, pre-padded
                                              with 0's to be as long as {parts}
                                  {parts}     Number of articles for the file
@@ -125,6 +125,8 @@ Article/Post Options:
                                             specified in command supplied
                                  {basename} Base file name without path
                                  {pathname} Path component of file name
+                             This also accepts the ${rand(N)} token (see
+                             `--subject`).
                              Default is `{basename}` which effectively
                              discards path names.
                              Note that this option has no effect on files not
@@ -155,9 +157,22 @@ Article/Post Options:
   -H,  --header              Specify an NNTP header in either of these forms:
                                  -H "MyHeader: MyValue"
                                  -H MyHeader=MyValue
+                                 -H MyHeader
+                             The first two set MyHeader to MyValue, whilst the
+                             third unsets the header MyHeader.
                              This option can be specified multiple times. Note
                              that specifying the same header more than once is
                              currently not supported.
+                             Tokens listed in the `--subject` option can be used
+                             in the header value.
+       --yenc-name           Override the value of the 'name' field in the yEnc
+                             header. This option accepts the same tokens as
+                             `--subject`, except for {size}, {timestamp}, {part}
+                             and {0part}.
+                             Default is `{filename}`
+       --article-encoding    Character encoding used in article/yEnc headers.
+                             Also affects NNTP commands. Accepted values are
+                             `ascii`, `latin1` and `utf8` (default `utf8`)
 
 Post Check Options:
 
@@ -309,7 +324,8 @@ NZB Output Options:
                              if there are multiple passwords
                              Shortcut for `-M password=...`
   -M,  --meta                Add a <meta> tag to the NZB. See `--header` option
-                             above for syntax details.
+                             above for syntax details; note that tokens are
+                             unavailable.
        --nzb-encoding        Character encoding used in the NZB (default utf-8)
                              See the following for a list of valid encodings:
                              https://nodejs.org/api/buffer.html#buffer_buffers_and_character_encodings
@@ -378,7 +394,7 @@ Advanced Tuning Options:
                              slower, but may be useful if the CPU or disk is
                              overloaded.
 
-Post Dumping Options:
+Other Options:
 
        --dump-failed-posts   Write out articles that fail to post to this
                              location. Message-ID will be appended to this to
@@ -395,6 +411,24 @@ Post Dumping Options:
        --delete-raw-posts    Delete successfully posted raw articles (flag
                              option). This only has any effect if the
                              `--input-raw-posts` flag is specified.
+  -E,  --token-eval          For all options which accept tokens (except
+                             `--copy-input`), switches to an alternative
+                             evaluation strategy, where the value is treated as
+                             a Javascript template string. Note that variables
+                             starting with '0' are not available.
+                             Example value for `--subject`:
+                                 ${filename}: part ${part-1} of ${parts}
+                             WARNING: as the value is wrapped in a Javascript
+                             template string (backticks), without escaping,
+                             care must be taken when using backticks and
+                             backslashes. For example, the following will cause
+                             a syntax error:
+                                 --from 'A`nt ${Date.now()}'
+                             The backtick above needs to be escaped with a
+                             backslash, like in a template string.
+                             NOTE: this syntax and rules are not considered
+                             final, and may change in future Nyuu releases
+                             This option takes no values. Requires NodeJS >= 4
 
 UI Options:
 
@@ -486,6 +520,10 @@ Input Files:
   -0,  --input-file0         Same as the `--input-file` option, except files
                              are separated by null characters instead of
                              newlines.
+       --input-file-enc      Encoding used on all specified input files. Must
+                             be a NodeJS recognised encoding, which includes
+                             `utf8`, `utf16le` and `latin1`. Default is `utf8`.
+                             Note that BOMs will not be interpreted.
 
   Nyuu also supports piping inputs from a command, however, as yEnc requires
   knowing exact file sizes in advance, this will need to be specified. The
