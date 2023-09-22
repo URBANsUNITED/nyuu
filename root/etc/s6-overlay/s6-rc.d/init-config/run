@@ -1,0 +1,7 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+
+# Check config file
+if [ ! -f  "/config/config.js" ]; then
+    cp /opt/config.js /config/config.js
+fi
