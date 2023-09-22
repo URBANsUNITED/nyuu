@@ -178,7 +178,11 @@ UploadManager.prototype = {
 			filename = crypto.randomBytes(Math.floor(Math.random() * 31) + 32).toString('hex');
 		}
 
-		var enc = new ArticleEncoder(filename, file.size, this.articleSize, this.opts.bytesPerLine, this.dateOverride);
+		var enc = new ArticleEncoder(filename, file.size, this.articleSize, this.dateOverride, {
+			encoding: this.opts.articleEncoding,
+			line_size: this.opts.bytesPerLine,
+			name: typeof this.opts.yencName == 'function' ? this.opts.yencName.bind(null, file.num, fileNumTotal) : this.opts.yencName
+		});
 		var sizes = [];
 		var self = this;
 		var numParts = Math.ceil(file.size / self.articleSize);
@@ -198,7 +202,7 @@ UploadManager.prototype = {
 		var preSubj = '';
 		if(this.opts.comment) preSubj = this.opts.comment + ' ';
 		if(fileNumTotal > 1)
-			preSubj += '[' + '0000000000000000'.substr(0, (''+fileNumTotal).length - (''+file.num).length) + file.num + '/' + fileNumTotal + '] - ';
+			preSubj += '[' + '0000000000000000'.substring(0, (''+fileNumTotal).length - (''+file.num).length) + file.num + '/' + fileNumTotal + '] - ';
 		// TODO: should we revert to single part titles if only 1 part?
 		preSubj += '"' + file.name.replace(RE_QUOTE, '') + '" yEnc (';
 		var postSubj = '/' + enc.parts + ') ' + file.size + (this.opts.comment2 ? ' ' + this.opts.comment2 : '');
@@ -232,9 +236,9 @@ UploadManager.prototype = {
 					if(!nzbFile) {
 						var nzbArgs = [
 							// the subject that the NZB takes is actually the subject of the first post (where counter is (1/xx))
-							postHeaders.subject,
-							postHeaders.from,
-							postHeaders.newsgroups,
+							postHeaders.subject || '',
+							postHeaders.from || '',
+							postHeaders.newsgroups || '',
 							numParts,
 							post.genTime
 						];
