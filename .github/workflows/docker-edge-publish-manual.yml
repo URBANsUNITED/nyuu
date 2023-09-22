@@ -47,6 +47,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
+            type=raw,value=edge
             type=raw,value=edge-${{ github.event.inputs.date }}
             type=sha,prefix=edge-${{ github.event.inputs.date }}-
 
