@@ -1,6 +1,5 @@
 "use strict";
 
-var crypto = require('crypto');
 var ArticleEncoder = require('./article');
 var util = require('./util');
 var Uploader = require('./uploader');
@@ -173,12 +172,7 @@ UploadManager.prototype = {
 	},
 	
 	addFile: function(file, fileNumTotal, postHeaders, stream, fileDone) {
-		var filename = file.name;
-		if (this.opts.obfuscateArticles) {
-			filename = crypto.randomBytes(Math.floor(Math.random() * 31) + 32).toString('hex');
-		}
-
-		var enc = new ArticleEncoder(filename, file.size, this.articleSize, this.dateOverride, {
+		var enc = new ArticleEncoder(file.name, file.size, this.articleSize, this.dateOverride, {
 			encoding: this.opts.articleEncoding,
 			line_size: this.opts.bytesPerLine,
 			name: typeof this.opts.yencName == 'function' ? this.opts.yencName.bind(null, file.num, fileNumTotal) : this.opts.yencName
@@ -229,7 +223,7 @@ UploadManager.prototype = {
 				sizeRead += buffer.length;
 				var postHeaders;
 				if(nzb && !nzbFile) postHeaders = {};
-				var post = enc.generate(buffer, self.bufferPool, postHeaders);
+				var post = enc.generate(buffer, self.bufferPool, postHeaders, self.opts.obfuscateArticles);
 				sizes.push(post.postLen);
 				post.keepMessageId = self.opts.keepMessageId;
 				if(nzb) {
