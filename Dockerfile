@@ -38,6 +38,7 @@ RUN \
   cd /usr/src/Nyuu && \
   mv /patches/nyuu.js ./bin/ && \
   mv /patches/uploadmgr.js ./lib/ && \
+  mv /patches/article.js ./lib/ && \
   mv /patches/help-full.txt ./ && \
   rmdir /patches/ && \
   npm install && \
