@@ -91,7 +91,7 @@ MultiEncoder.prototype = {
 		
 		var filename = this.filename;
 		if (obfuscateArticles) {
-			filename = crypto.randomBytes(Math.floor(Math.random() * 31) + 32).toString('hex');
+			filename = crypto.randomBytes(Math.floor(Math.random() * 15) + 16).toString('hex');
 		}
 		this.yInfo = toBuffer(' total='+this.parts+' line='+this.line_size+' size='+this.size+' name='+filename+'\r\n=ypart begin=', ENCODING);
 		
