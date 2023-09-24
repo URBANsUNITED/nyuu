@@ -41,6 +41,7 @@ RUN \
   mv /patches/article.js ./lib/ && \
   mv /patches/help-full.txt ./ && \
   rmdir /patches/ && \
+  sed -i "s/'User-Agent':/\/\/'User-Agent':/g" ./config.js && \
   npm install && \
   ln -s /usr/src/Nyuu/bin/nyuu.js /usr/bin/nyuu && \
   chmod +x /usr/bin/nyuu
