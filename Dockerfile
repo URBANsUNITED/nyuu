@@ -23,6 +23,9 @@ RUN \
     rar \
     ca-certificates \
     xz-utils \
+    mc \
+    p7zip-full \
+    nano \
     tmux && \
   apt-get clean all && \
   rm -rf /var/lib/apt/lists/* && \
