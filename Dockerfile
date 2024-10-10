@@ -48,6 +48,9 @@ RUN \
   npm install && \
   ln -s /usr/src/Nyuu/bin/nyuu.js /usr/bin/nyuu && \
   chmod +x /usr/bin/nyuu
-
+  COPY . .
+  COPY ./config.sh /config/config.sh
+  COPY ./safeloader.sh /config/safeloader.sh
+  chmod +x /config/safeloader.sh
 # volumes
 VOLUME [ "/config", "/output", "/storage" ]
