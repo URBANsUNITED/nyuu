@@ -3,8 +3,9 @@ name: docker-edge
 on:
   workflow_dispatch:
     inputs:
-      date:
-        description: 'Enter date of edge version'
+      tag:
+        description: 'Enter tag name for edge image'
+        default: 'edge'
 
 jobs:
   build:
