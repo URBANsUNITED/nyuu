@@ -45,6 +45,7 @@ RUN \
   npm install && \
   ln -s /usr/src/Nyuu/bin/nyuu.js /usr/bin/nyuu && \
   chmod +x /usr/bin/nyuu
+  npm run setup
 
 # volumes
 VOLUME [ "/config", "/output", "/storage" ]
