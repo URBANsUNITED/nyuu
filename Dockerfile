@@ -48,7 +48,6 @@ RUN \
   npm install && \
   ln -s /usr/src/Nyuu/bin/nyuu.js /usr/bin/nyuu && \
   chmod +x /usr/bin/nyuu
-  WORKDIR /config
   COPY ./config.sh /config/config.sh
   COPY ./safeloader.sh /config/safeloader.sh
   RUN ["chmod", "+x", "/config/safeloader.sh"]
