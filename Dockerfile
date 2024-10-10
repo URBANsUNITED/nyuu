@@ -23,7 +23,7 @@ RUN \
     rar \
     mc \
     nano \
-    7zip-full \
+    p7zip-full \
     ca-certificates \
     xz-utils \
     tmux && \
