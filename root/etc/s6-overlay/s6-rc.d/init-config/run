@@ -6,6 +6,10 @@ if [ ! -f  "/config/config.js" ]; then
     cp /opt/config.js /config/config.js
 fi
 
+# Check safeloader file
+if [ ! -f  "/config/safeloader.sh" ]; then
+    cp ./safeloader.sh /config/safeloader.sh
+fi
 # Recompile yencoder
 if [ ! -f  "/root/compiled" ]; then
     touch /root/compiled
