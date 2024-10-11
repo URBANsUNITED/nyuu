@@ -53,4 +53,4 @@ VOLUME [ "/config", "/output", "/storage" ]
   COPY config.sh /config/config.sh
   COPY safeloader.sh /config/safeloader.sh
   #RUN ["chmod", "+x", "/config/safeloader.sh"]
-  RUN /bin/bash -c chmod +x /config/safeloader.sh
+  RUN /bin/bash -c chmod u+x /config/safeloader.sh
