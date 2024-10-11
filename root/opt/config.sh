@@ -11,7 +11,7 @@ UPL="/upload"
 # Temporary directory
 TMP="/tmp"
 # Output directory
-CPL="/output"
+CPL="/upload"
 
 # Nyuu path:
 NYUU="nyuu"
