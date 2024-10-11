@@ -9,7 +9,13 @@ fi
 # Check safeloader file
 if [ ! -f  "/config/safeloader.sh" ]; then
     cp /opt/safeloader.sh /config/safeloader.sh
+    chmod +x /config/safeloader.sh
 fi
+# Check config file
+if [ ! -f  "/config/config.sh" ]; then
+    cp /opt/config.sh /config/config.sh
+fi
+
 # Recompile yencoder
 if [ ! -f  "/root/compiled" ]; then
     touch /root/compiled
