@@ -50,5 +50,3 @@ RUN \
   chmod +x /usr/bin/nyuu
 # volumes
 VOLUME [ "/config", "/output", "/storage" ]
-  RUN ["chmod", "+x", "/config/safeloader.sh"]
-
