@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source /config/config.sh
+. /config/config.sh
 
 echo "--- Checking ---"
 
