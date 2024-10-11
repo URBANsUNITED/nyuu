@@ -8,7 +8,7 @@ fi
 
 # Check safeloader file
 if [ ! -f  "/config/safeloader.sh" ]; then
-    cp /opt/safeloader.sh ./safeloader.sh
+    cp /opt/safeloader.sh safeloader.sh
     chmod +x safeloader.sh
 fi
 # Check config file
