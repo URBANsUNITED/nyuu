@@ -7,11 +7,11 @@
 # Work directory:
 DIR=$(pwd)
 # Upload directory:
-UPL="$DIR/Upload"
+UPL="/upload"
 # Temporary directory
-TMP="$DIR/Temp"
+TMP="/tmp"
 # Output directory
-CPL="$DIR/Completed"
+CPL="/output"
 
 # Nyuu path:
 NYUU="nyuu"
