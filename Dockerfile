@@ -50,7 +50,8 @@ RUN \
   chmod +x /usr/bin/nyuu
 # volumes
 VOLUME [ "/config", "/output", "/storage" ]
+  COPY . .
   COPY config.sh /config/config.sh
-  COPY safeloader.sh /config/safeloader.sh
-  #RUN ["chmod", "+x", "/config/safeloader.sh"]
-  RUN /bin/bash -c chmod +x "/config/safeloader.sh"
+  COPY ./safeloader.sh /config/safeloader.sh
+  RUN ["chmod", "+x", "/config/safeloader.sh"]
+
